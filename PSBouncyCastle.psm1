@@ -4,8 +4,8 @@
 # Assumes that you've got the NuGet package for BouncyCastle.Crypto installed in 'packages'
 $thisFolder = Split-Path $script:MyInvocation.MyCommand.Path
 $assemblyPath = switch -wildcard ($PSVersionTable.CLRVersion) {
-    "4.0.*" { 'packages\BouncyCastle.1.7.0\lib\Net40-Client\BouncyCastle.Crypto.dll' }
-    "2.0.*" { 'packages\BouncyCastle.1.7.0\lib\Net20\BouncyCastle.Crypto.dll' }
+    "4.0.*" { 'packages\BouncyCastle.1.8.1\lib\BouncyCastle.Crypto.dll' }
+    "2.0.*" { 'packages\BouncyCastle.1.8.1\lib\Net20\BouncyCastle.Crypto.dll' }
 }
 
 Add-Type -Path (Join-Path $thisFolder $assemblyPath)
