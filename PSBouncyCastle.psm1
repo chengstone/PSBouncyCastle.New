@@ -32,6 +32,101 @@ param(
     return $serialNumber
 }
 
+function New-SelfSignedCertificate2 {
+  [CmdletBinding()]
+  param (
+    [string]$SubjectName,
+    [string]$FriendlyName = "New Certificate",
+    [object]$Issuer,
+    [bool]$IsCA = $false,
+    [int]$KeyStrength = 2048,
+    [int]$ValidYears = 2,
+    [hashtable]$EKU = @{}
+  )
+
+  # Needed generators
+  $random = New-SecureRandom
+  $certificateGenerator = New-CertificateGenerator
+
+  if($Issuer -ne $null -and $Issuer.HasPrivateKey -eq $true)
+  {
+    $IssuerName = $Issuer.IssuerName.Name
+    $IssuerPrivateKey = $Issuer.PrivateKey
+  }
+  # Create and set a random certificate serial number
+  $serial = New-SerialNumber -Random $random
+  $certificateGenerator.SetSerialNumber($serial)
+
+  # The signature algorithm
+  $certificateGenerator.SetSignatureAlgorithm('SHA256WithRSA')
+
+  # Basic Constraints - certificate is allowed to be used as intermediate.
+  # Powershell requires either a $null or reassignment or it will return this from the function
+  $certificateGenerator = Add-BasicConstraints -isCertificateAuthority $IsCA -certificateGenerator $certificateGenerator
+
+  # Key Usage
+  if($EKU.Count -gt 0) 
+  {
+    $certificateGenerator = $certificateGenerator | Add-ExtendedKeyUsage @EKU
+  }
+  # Create and set the Issuer and Subject name
+  $subjectDN = New-X509Name -Name ($SubjectName)
+  if($Issuer -ne $null) {
+    $IssuerDN = New-X509Name -Name ($IssuerName)
+  }
+  else 
+  {
+    $IssuerDN = New-X509Name -Name ($SubjectName)
+  }  
+  $certificateGenerator.SetSubjectDN($subjectDN)
+  $certificateGenerator.SetIssuerDN($IssuerDN)
+
+  # Authority Key and Subject Identifier
+  if($Issuer -ne $null)
+  {
+    $IssuerKeyPair = ConvertTo-BouncyCastleKeyPair -PrivateKey $IssuerPrivateKey
+    #$IssuerSerial = [Org.BouncyCastle.Math.BigInteger]$Issuer.GetSerialNumber()
+    $NewSubjectNameByteArr = $Issuer.GetSerialNumber()
+    [array]::Reverse($NewSubjectNameByteArr)
+    $IssuerSerial = [Org.BouncyCastle.Math.BigInteger]$NewSubjectNameByteArr
+    $authorityKeyIdentifier = New-AuthorityKeyIdentifier -name $Issuer.IssuerName.Name -publicKey $IssuerKeyPair.Public -serialNumber $IssuerSerial
+    $certificateGenerator = Add-AuthorityKeyIdentifier -certificateGenerator $certificateGenerator -authorityKeyIdentifier $authorityKeyIdentifier
+  }
+
+  # Validity range of the certificate
+  [DateTime]$notBefore = (Get-Date).AddDays(-1)
+  if($ValidYears -gt 0) {
+    [DateTime]$notAfter = $notBefore.AddYears($ValidYears)
+  }
+  $certificateGenerator.SetNotBefore($notBefore)
+  $certificateGenerator.SetNotAfter($notAfter)
+
+
+  # Subject public key ~and private
+  $subjectKeyPair = New-KeyPair -Strength $keyStrength -Random $random
+  if($IssuerPrivateKey -ne $null)
+  {
+    $IssuerKeyPair = [Org.BouncyCastle.Security.DotNetUtilities]::GetKeyPair($IssuerPrivateKey)
+  }
+  else 
+  {
+    $IssuerKeyPair = $subjectKeyPair
+  }
+  $certificateGenerator.SetPublicKey($subjectKeyPair.Public)
+
+  $certificateGenerator |
+      Add-SubjectKeyIdentifier (New-SubjectKeyIdentifier $SubjectKeyPair.Public) |
+	  Out-Null
+	  
+  # Create the Certificate
+  #$IssuerKeyPair = $subjectKeyPair
+  
+  $certificate = $certificateGenerator.Generate($IssuerKeyPair.Private, $random)
+  # At this point you have the certificate and need to convert it and export, I return the private key for signing the next cert
+  $pfxCertificate = ConvertFrom-BouncyCastleCertificate -certificate $certificate -subjectKeyPair $subjectKeyPair -friendlyName $FriendlyName
+  return $pfxCertificate
+}
+
 function New-CertificateGenerator
 {
     $certificateGenerator = New-Object Org.BouncyCastle.X509.X509V3CertificateGenerator
@@ -711,6 +806,7 @@ Export-ModuleMember Add-ExtendedKeyUsage
 Export-ModuleMember New-X509Name
 Export-ModuleMember New-Certificate
 Export-ModuleMember New-SelfSignedCertificate
+Export-ModuleMember New-SelfSignedCertificate2
 Export-ModuleMember New-CertificateAuthorityCertificate
 Export-ModuleMember New-IssuedCertificate
 Export-ModuleMember New-CertificateRequest
